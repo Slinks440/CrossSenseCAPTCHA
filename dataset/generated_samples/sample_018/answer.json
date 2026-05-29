@@ -1,0 +1,46 @@
+{
+    "question_type": "temporal",
+    "question_text": "Please click the object corresponding to sound #2 / 请点击第 2 个发出声音的物体",
+    "audio_metadata": {
+        "duration": 5.425,
+        "events": [
+            {
+                "source": "bee",
+                "start_time": 0.58
+            },
+            {
+                "source": "cat",
+                "start_time": 1.83
+            }
+        ]
+    },
+    "image_metadata": [
+        {
+            "label": "bee",
+            "bbox": [
+                173,
+                123,
+                346,
+                261
+            ]
+        },
+        {
+            "label": "cat",
+            "bbox": [
+                333,
+                43,
+                460,
+                201
+            ]
+        }
+    ],
+    "target": {
+        "label": "cat",
+        "bbox": [
+            333,
+            43,
+            460,
+            201
+        ]
+    }
+}

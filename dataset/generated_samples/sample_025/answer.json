@@ -1,0 +1,55 @@
+{
+    "question_type": "exclusion",
+    "question_text": "Please click the object that did NOT make a sound / 请点击未发出声音的物体",
+    "audio_metadata": {
+        "duration": 3.525,
+        "events": [
+            {
+                "source": "cat",
+                "start_time": 0.49
+            },
+            {
+                "source": "bird",
+                "start_time": 0.73
+            }
+        ]
+    },
+    "image_metadata": [
+        {
+            "label": "cat",
+            "bbox": [
+                161,
+                111,
+                280,
+                266
+            ]
+        },
+        {
+            "label": "bee",
+            "bbox": [
+                367,
+                115,
+                517,
+                288
+            ]
+        },
+        {
+            "label": "bird",
+            "bbox": [
+                18,
+                25,
+                210,
+                181
+            ]
+        }
+    ],
+    "target": {
+        "label": "bee",
+        "bbox": [
+            367,
+            115,
+            517,
+            288
+        ]
+    }
+}

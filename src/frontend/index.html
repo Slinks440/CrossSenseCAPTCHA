@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>CrossSense CAPTCHA V14</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #0b0c10; color: #c5c6c7;}
+        .captcha-container { display: inline-block; border: 1px solid #45a29e; padding: 20px; border-radius: 8px; background: #1f2833; box-shadow: 0 4px 15px rgba(102, 252, 241, 0.2);}
+        img { max-width: 600px; margin-top: 15px; border: 1px solid #66fcf1; cursor: crosshair; user-select: none; transition: transform 0.1s ease; }
+        .locked-img { filter: grayscale(80%) opacity(60%); cursor: not-allowed; pointer-events: none; }
+        button { margin-top: 15px; padding: 8px 16px; cursor: pointer; border: none; background: #45a29e; color: #0b0c10; border-radius: 4px; font-weight: bold;}
+        button:hover { background: #66fcf1; }
+        #result-msg { margin-top: 15px; font-weight: bold; height: 20px;}
+        .damping-active { cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="10" fill="rgba(255,0,0,0.5)"/></svg>') 16 16, crosshair !important; filter: drop-shadow(0 0 10px red); }
+        #legacy-fallback-ui { display: none; margin-top: 15px; }
+        #legacy-input { padding: 8px; margin-right: 10px; width: 150px; background: #c5c6c7; border: none; border-radius: 4px; font-weight: bold; color: #0b0c10;}
+    </style>
+</head>
+<body>
+    <div class="captcha-container">
+        <h3 id="question-text">Initializing Security Gateway...</h3>
+        <audio id="captcha-audio" controls preload="auto"></audio><br>
+        <img id="captcha-img" class="locked-img" src="" alt="CAPTCHA" /><br>
+        
+        <div id="legacy-fallback-ui">
+            <p>Listen to the audio and enter the code / 请听录音并输入答案:</p>
+            <input type="text" id="legacy-input" placeholder="Audio code" autocomplete="off" />
+            <button onclick="window.submitLegacyAudio()">Submit Answer</button>
+        </div>
+
+        <div id="result-msg"></div>
+        <button onclick="window.startChallenge()">Refresh / 换一题</button>
+    </div>
+
+    <script type="module">
+        import initBase, { encrypt_payload } from '/pkg/cross_sense_captcha_base.js';
+        import initLogic, { set_friction_target, push_event, check_friction_trigger, extract_payload } from '/pkg/cross_sense_captcha_logic.js';
+
+        let currentChallengeId = "";
+        let serverPubKey = "";
+        let serverNonce = "";
+        let isAudioEnded = false; 
+        let lastEventTime = 0;
+        let dampingApplied = false;
+        let wasmPanicked = false;
+        
+        const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+        function fallbackToLegacyAudio() {
+            wasmPanicked = true;
+            document.getElementById('captcha-img').style.display = "none";
+            document.getElementById('legacy-fallback-ui').style.display = "block";
+            document.getElementById('result-msg').innerText = "[Fallback] Env Error: Audio Challenge Activated";
+            document.getElementById('result-msg').style.color = "yellow";
+        }
+
+        window.submitLegacyAudio = async function() {
+            if (!currentChallengeId) return;
+            const answer = document.getElementById('legacy-input').value;
+            if(!answer) return;
+
+            const verifyRes = await fetch('/api/verify_legacy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    challenge_id: currentChallengeId,
+                    answer_text: answer
+                })
+            });
+            const data = await verifyRes.json();
+            
+            const msgDiv = document.getElementById('result-msg');
+            msgDiv.innerText = data.msg;
+            msgDiv.style.color = data.success ? "green" : "red";
+
+            if (data.success) {
+                console.log("Legacy Sign Seed received:", data.sign_seed);
+                setTimeout(window.startChallenge, 1500);
+            }
+        };
+
+        async function runPoW(init_seed, difficulty) {
+            const BUFFER_SIZE = 2 * 1024 * 1024; // 2MB
+            const INT32_COUNT = BUFFER_SIZE / 4;
+            const buffer = new Int32Array(INT32_COUNT);
+            
+            let seed = Array.from(init_seed).reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) | 0, 0);
+            
+            for(let i=0; i<INT32_COUNT; i++) {
+                seed = (seed * 1664525 + 1013904223) | 0;
+                buffer[i] = Math.abs(seed) % INT32_COUNT;
+            }
+            
+            const iterCount = 1000000;
+            let ptr = 0;
+            for(let i=0; i<iterCount; i++) {
+                ptr = buffer[ptr];
+            }
+            return ptr.toString();
+        }
+
+        async function initGateway() {
+            try {
+                await initBase('/pkg/cross_sense_captcha_base_bg.wasm');
+                await initLogic('/pkg/cross_sense_captcha_logic_bg.wasm');
+                startChallenge();
+            } catch (e) {
+                console.error("Wasm Init Failed (Panic or Env error):", e);
+                fallbackToLegacyAudio();
+                startChallenge(); // load challenge in fallback mode
+            }
+        }
+
+        window.startChallenge = async function() {
+            isAudioEnded = false;
+            currentChallengeId = "";
+            dampingApplied = false;
+            document.getElementById('legacy-input').value = "";
+            
+            if(!wasmPanicked) {
+                document.getElementById('captcha-img').classList.add('locked-img');
+                document.getElementById('captcha-img').classList.remove('damping-active');
+            }
+            
+            document.getElementById('result-msg').innerText = "Solving PoW... / 解算前置挑战...";
+            document.getElementById('result-msg').style.color = "#666";
+
+            const initRes = await fetch('/api/init');
+            const initData = await initRes.json();
+            
+            const powResult = await runPoW(initData.init_seed, initData.difficulty);
+            
+            document.getElementById('result-msg').innerText = "Fetching Challenge... / 获取考题...";
+            const capRes = await fetch('/api/captcha', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pow_result: powResult })
+            });
+            const capData = await capRes.json();
+
+            if (capData.error) {
+                document.getElementById('question-text').innerText = "Error: " + capData.error;
+                return;
+            }
+
+            currentChallengeId = capData.challenge_id;
+            serverPubKey = capData.server_pub_key;
+            serverNonce = capData.server_nonce;
+            
+            if(!wasmPanicked) {
+                try {
+                    set_friction_target(capData.obs_x, capData.obs_y, capData.seed_num);
+                } catch(e) {
+                    console.error("Wasm panic during set_friction_target", e);
+                    fallbackToLegacyAudio();
+                }
+            }
+            
+            document.getElementById('question-text').innerText = capData.question_text;
+            
+            const timestamp = Date.now();
+            document.getElementById('captcha-img').src = capData.image_url + "?t=" + timestamp;
+            document.getElementById('captcha-audio').src = capData.audio_url + "?t=" + timestamp;
+            
+            document.getElementById('result-msg').innerText = "Please listen to the audio / 请先听完录音...";
+        };
+
+        document.getElementById('captcha-audio').onended = function() {
+            isAudioEnded = true;
+            if(!wasmPanicked) {
+                document.getElementById('captcha-img').classList.remove('locked-img');
+                document.getElementById('result-msg').innerText = "Audio finished, please click the target / 播放完毕，请作答";
+                document.getElementById('result-msg').style.color = "#66fcf1";
+                lastEventTime = performance.now();
+            } else {
+                document.getElementById('result-msg').innerText = "Please enter audio code / 请输入录音验证码";
+                document.getElementById('result-msg').style.color = "#66fcf1";
+            }
+        };
+
+        const imgEl = document.getElementById('captcha-img');
+        
+        function handleMove(e) {
+            if (!isAudioEnded || wasmPanicked) return;
+            const now = performance.now();
+            const dt = now - lastEventTime;
+            lastEventTime = now;
+
+            const rect = imgEl.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const force = e.pressure !== undefined ? e.pressure : 0.5;
+            const radius = e.radiusX !== undefined ? e.radiusX : 5.0;
+
+            try {
+                push_event(x, y, dt, force, radius);
+                const friction = check_friction_trigger(x, y);
+                if (friction > 1.0 && !dampingApplied) {
+                    dampingApplied = true;
+                    imgEl.classList.add('damping-active');
+                    imgEl.style.transform = "scale(0.98)";
+                }
+            } catch(err) {
+                console.error("Wasm Panic during push_event", err);
+                fallbackToLegacyAudio();
+            }
+        }
+
+        imgEl.addEventListener('mousemove', handleMove);
+        imgEl.addEventListener('touchmove', (e) => {
+            if(e.touches.length > 0) handleMove(e.touches[0]);
+        });
+
+        imgEl.addEventListener('click', async (e) => {
+            if (!currentChallengeId || !isAudioEnded || wasmPanicked) return;
+            handleMove(e);
+
+            const js_entropy = Math.random().toString(36).substring(2);
+            const lsh = "canvas_lsh_hash_mock"; 
+
+            let payloadJson;
+            try {
+                const logicDataBuffer = extract_payload(isTouch);
+                payloadJson = encrypt_payload(logicDataBuffer, serverPubKey, serverNonce, js_entropy, lsh, isTouch);
+                crypto.getRandomValues(logicDataBuffer);
+            } catch(err) {
+                console.error("Wasm Panic during encryption pipeline", err);
+                fallbackToLegacyAudio();
+                return;
+            }
+            
+            const payload = JSON.parse(payloadJson);
+
+            const verifyRes = await fetch('/api/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    challenge_id: currentChallengeId,
+                    js_entropy: js_entropy,
+                    client_pub: payload.client_pub,
+                    ciphertext: payload.ciphertext
+                })
+            });
+            const data = await verifyRes.json();
+            
+            const msgDiv = document.getElementById('result-msg');
+            msgDiv.innerText = data.msg;
+            msgDiv.style.color = data.success ? "green" : "red";
+            
+            imgEl.style.transform = "scale(1.0)";
+            imgEl.classList.remove('damping-active');
+
+            if (data.success) {
+                console.log("Sign Seed received:", data.sign_seed);
+                setTimeout(window.startChallenge, 1500);
+            }
+        });
+
+        initGateway();
+    </script>
+</body>
+</html>

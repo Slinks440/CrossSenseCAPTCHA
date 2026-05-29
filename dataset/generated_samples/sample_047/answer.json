@@ -1,0 +1,59 @@
+{
+    "question_type": "temporal",
+    "question_text": "Please click the object corresponding to sound #3 / 请点击第 3 个发出声音的物体",
+    "audio_metadata": {
+        "duration": 5.325,
+        "events": [
+            {
+                "source": "bee",
+                "start_time": 0.48
+            },
+            {
+                "source": "bird",
+                "start_time": 1.99
+            },
+            {
+                "source": "cat",
+                "start_time": 3.28
+            }
+        ]
+    },
+    "image_metadata": [
+        {
+            "label": "cat",
+            "bbox": [
+                176,
+                85,
+                367,
+                209
+            ]
+        },
+        {
+            "label": "bird",
+            "bbox": [
+                377,
+                86,
+                536,
+                203
+            ]
+        },
+        {
+            "label": "bee",
+            "bbox": [
+                30,
+                33,
+                189,
+                205
+            ]
+        }
+    ],
+    "target": {
+        "label": "cat",
+        "bbox": [
+            176,
+            85,
+            367,
+            209
+        ]
+    }
+}

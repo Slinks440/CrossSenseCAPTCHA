@@ -1,0 +1,49 @@
+name: CrossSense Wasm Dual-Core Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache Base Wasm
+        uses: actions/cache@v3
+        with:
+          path: src/wasm/base/target
+          key: base-wasm-${{ hashFiles('src/wasm/base/Cargo.toml') }}-${{ hashFiles('src/wasm/base/src/**/*.rs') }}
+          restore-keys: |
+            base-wasm-
+
+      - name: Build Base Wasm (Crypto)
+        run: |
+          cd src/wasm/base
+          wasm-pack build --target web --release
+
+      - name: Build Logic Wasm (Dynamics)
+        # Logic module updates frequently (daily), so cache hit is less critical but still useful
+        run: |
+          cd src/wasm/logic
+          wasm-pack build --target web --release
+          
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: wasm-pkg
+          path: |
+            src/wasm/base/pkg/
+            src/wasm/logic/pkg/
