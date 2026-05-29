@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -22,7 +22,7 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Cache Base Wasm
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: src/wasm/base/target
           key: base-wasm-${{ hashFiles('src/wasm/base/Cargo.toml') }}-${{ hashFiles('src/wasm/base/src/**/*.rs') }}
@@ -41,7 +41,7 @@ jobs:
           wasm-pack build --target web --release
           
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wasm-pkg
           path: |
